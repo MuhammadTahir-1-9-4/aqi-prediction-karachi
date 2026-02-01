@@ -1,0 +1,161 @@
+name: AQI Prediction Pipeline
+
+on:
+  schedule:
+    # Run feature pipeline hourly (at minute 0)
+    - cron: '0 * * * *'
+    # Run training pipeline daily at 2 AM
+    - cron: '0 2 * * *'
+  
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      pipeline:
+        description: 'Pipeline to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - features
+          - training
+          - backfill
+
+env:
+  PYTHON_VERSION: '3.9'
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      cache-key: ${{ steps.cache.outputs.cache-key }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Cache dependencies
+      id: cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/pip
+        key: ${{ runner.os }}-python-${{ env.PYTHON_VERSION }}-pip-${{ hashFiles('requirements.txt') }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+  hourly-feature-pipeline:
+    if: github.event_name == 'schedule' && github.event.schedule == '0 * * * *' || github.event.inputs.pipeline == 'features' || github.event.inputs.pipeline == 'all'
+    runs-on: ubuntu-latest
+    needs: setup
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run hourly feature pipeline
+      env:
+        HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+        OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
+        LAT: ${{ secrets.LAT }}
+        LON: ${{ secrets.LON }}
+      run: |
+        python -m src.feature_store.hourly_ingestion
+    
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: hourly-logs
+        path: |
+          data/processed/hourly/*.csv
+        retention-days: 3
+
+  daily-training-pipeline:
+    if: github.event_name == 'schedule' && github.event.schedule == '0 2 * * *' || github.event.inputs.pipeline == 'training' || github.event.inputs.pipeline == 'all'
+    runs-on: ubuntu-latest
+    needs: setup
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run daily training pipeline
+      env:
+        HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+      run: |
+        python -m src.models.daily_training
+    
+    - name: Upload model artifacts
+      if: success()
+      uses: actions/upload-artifact@v3
+      with:
+        name: model-artifacts
+        path: |
+          models_artifacts/
+          registry_artifacts/
+        retention-days: 7
+
+  historical-backfill:
+    if: github.event.inputs.pipeline == 'backfill'
+    runs-on: ubuntu-latest
+    needs: setup
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run historical backfill
+      env:
+        HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+        OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
+        LAT: ${{ secrets.LAT }}
+        LON: ${{ secrets.LON }}
+      run: |
+        python -m src.feature_store.backfill_aqi_features --days 30
+    
+    - name: Upload backfill data
+      if: success()
+      uses: actions/upload-artifact@v3
+      with:
+        name: backfill-data
+        path: data/processed/*.csv
+        retention-days: 7
