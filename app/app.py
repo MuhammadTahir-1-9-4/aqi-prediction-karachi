@@ -114,8 +114,13 @@ else:
             @st.cache_resource(ttl=300)
             def load_model_and_components():
                 try:
+                    api_key = os.getenv("HOPSWORKS_API_KEY")
+                    if not api_key:
+                        st.warning("⚠️ HOPSWORKS_API_KEY not found in secrets. Using sample data.")
+                        return None, None, None, None, None
+
                     project = hopsworks.login(
-                        api_key_value=os.getenv("HOPSWORKS_API_KEY"),
+                        api_key_value=api_key,
                         project="aqi_predicton"
                     )
                     
