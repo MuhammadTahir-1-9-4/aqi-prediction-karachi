@@ -1,4 +1,3 @@
-
 # flask API for AQI Predictions
 from flask import Flask, request, jsonify
 import hopsworks

@@ -9,9 +9,11 @@ import matplotlib
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import warnings
+import requests
+import time
+
 warnings.filterwarnings('ignore')
 
-# set matplotlib backend
 matplotlib.use('Agg')
 
 load_dotenv()
@@ -29,6 +31,8 @@ st.info("""
 Current reading of 4.02 means "Poor" air quality on OpenWeather scale, while other sources may show different numbers using EPA scale.
 """)
 
+FLASK_API_URL = "http://localhost:5000"
+
 def aqi_status(aqi):
     if aqi <= 1:
         return "🟢 Good", "green", 0.2
@@ -41,129 +45,240 @@ def aqi_status(aqi):
     else:
         return "☠️ Very Poor", "darkred", 1.0
 
-@st.cache_resource(ttl=300)  # cache for 5 minutes
-def load_model_and_components():
-    try:
-        project = hopsworks.login(
-            api_key_value=os.getenv("HOPSWORKS_API_KEY"),
-            project="aqi_predicton"
-        )
-        
-        mr = project.get_model_registry()
-        fs = project.get_feature_store()
-        
-        model = mr.get_model(
-            name="aqi_gradient_boosting_model",
-            version=1
-        )
-        
-        model_dir = model.download()
-        
-        model_file = None
-        for possible_file in ["model.pkl", "gradient_boosting_model.pkl", "gb_model.pkl"]:
-            model_path = os.path.join(model_dir, possible_file)
-            if os.path.exists(model_path):
-                model_file = model_path
-                break
-        
-        if model_file is None:
-            files = os.listdir(model_dir)
-            st.error(f"Model file not found. Available files: {files}")
-            return None, None, None, None, None
-        
-        gb_model = joblib.load(model_file)
-        
-        scaler = None
-        scaler_path = os.path.join(model_dir, "scaler.pkl")
-        if os.path.exists(scaler_path):
-            scaler = joblib.load(scaler_path)
-        else:
-            st.warning("Scaler not found, using default scaling")
-            from sklearn.preprocessing import StandardScaler
-            scaler = StandardScaler()
-        
-        feature_names = None
-        features_path = os.path.join(model_dir, "feature_names.pkl")
-        if os.path.exists(features_path):
-            feature_names = joblib.load(features_path)
-        else:
-            feature_names = [
-                'co', 'no', 'no2', 'o3', 'so2', 'pm2_5', 'pm10', 'nh3',
-                'hour', 'day', 'day_of_week', 'month', 'is_weekend',
-                'aqi_change_rate', 'rolling_aqi_3h', 'rolling_aqi_6h', 'rolling_aqi_24h'
-            ]
-        
-        return fs, gb_model, scaler, feature_names, project
-        
-    except Exception as e:
-        st.error(f"❌ Error loading components: {str(e)}")
-        return None, None, None, None, None
-
-def get_latest_features(fs, feature_names):
-    try:
-        fv = fs.get_feature_view(
-            name="aqi_feature_view",
-            version=1
-        )
-        
-        end_time = datetime.now()
-        start_time = end_time - timedelta(hours=24)  # Last 24 hours
-        
-        batch_data = fv.get_batch_data(
-            start_time=start_time,
-            end_time=end_time
-        )
-        
-        if isinstance(batch_data, tuple) and len(batch_data) == 2:
-            X, y = batch_data
-        else:
-            X = batch_data
-        
-        if X is not None and not X.empty:
-            available_features = [f for f in feature_names if f in X.columns]
-            X_filtered = X[available_features].copy()
-            
-            latest_sample = X_filtered.iloc[-1:].copy()
-            
-            for feature in feature_names:
-                if feature not in latest_sample.columns:
-                    latest_sample[feature] = 0  # Default value
-            
-            return latest_sample[feature_names]
-        
-    except Exception as e:
-        st.warning(f"Could not fetch live data: {str(e)}")
-    
+def _request_with_retries(method, path, timeout=30, retries=3):
+    url = f"{FLASK_API_URL}{path}"
+    for attempt in range(retries):
+        try:
+            resp = requests.request(method, url, timeout=timeout)
+            if resp.status_code == 200:
+                return resp
+        except requests.RequestException:
+            pass
+        time.sleep(2 ** attempt)
     return None
 
-def create_sample_data(feature_names):
-    now = datetime.now()
+def get_prediction_from_api(timeout=30, retries=3):
+    # quick health check first
+    h = _request_with_retries("GET", "/health", timeout=timeout, retries=1)
+    if not h:
+        return None
+    resp = _request_with_retries("GET", "/predict", timeout=timeout, retries=retries)
+    if not resp:
+        return None
+    try:
+        return resp.json()
+    except Exception:
+        return None
+
+def get_forecast_from_api(timeout=30, retries=3):
+    resp = _request_with_retries("GET", "/forecast", timeout=timeout, retries=retries)
+    if not resp:
+        return None
+    try:
+        return resp.json()
+    except Exception:
+        return None
+
+# replace existing api usage block with the following
+api_response = get_prediction_from_api()
+
+if api_response and "prediction" in api_response:
+    st.session_state['using_sample_data'] = False
+    prediction = api_response['prediction']
+    st.session_state['prediction'] = prediction
+
+    # prefer features returned by the API if present
+    if "features" in api_response and isinstance(api_response["features"], dict):
+        feature_names = list(api_response["features"].keys())
+        latest_sample = pd.DataFrame([api_response["features"]])[feature_names]
+        gb_model = None
+        scaler = None
+        project = None
+    else:
+        feature_names = [
+            'co', 'no', 'no2', 'o3', 'so2', 'pm2_5', 'pm10', 'nh3',
+            'hour', 'day', 'day_of_week', 'month', 'is_weekend',
+            'aqi_change_rate', 'rolling_aqi_3h', 'rolling_aqi_6h', 'rolling_aqi_24h'
+        ]
+        latest_sample = pd.DataFrame({col: [np.random.uniform(0, 100)] for col in feature_names})
+        gb_model = None
+        scaler = None
+        project = None
+
+    st.success("✅ Connected to live API")
+else:
+    # keep the existing hopsworks -> sample-data fallback here
+    with st.spinner("Loading model and data..."):
+        try:
+            # try to load model components from hopsworks
+            @st.cache_resource(ttl=300)
+            def load_model_and_components():
+                try:
+                    project = hopsworks.login(
+                        api_key_value=os.getenv("HOPSWORKS_API_KEY"),
+                        project="aqi_predicton"
+                    )
+                    
+                    mr = project.get_model_registry()
+                    fs = project.get_feature_store()
+                    
+                    model = mr.get_model(
+                        name="aqi_gradient_boosting_model",
+                        version=1
+                    )
+                    
+                    model_dir = model.download()
+                    
+                    model_file = None
+                    for possible_file in ["model.pkl", "gradient_boosting_model.pkl", "gb_model.pkl"]:
+                        model_path = os.path.join(model_dir, possible_file)
+                        if os.path.exists(model_path):
+                            model_file = model_path
+                            break
+                    
+                    if model_file is None:
+                        return None, None, None, None, None
+                    
+                    gb_model = joblib.load(model_file)
+                    
+                    scaler = None
+                    scaler_path = os.path.join(model_dir, "scaler.pkl")
+                    if os.path.exists(scaler_path):
+                        scaler = joblib.load(scaler_path)
+                    else:
+                        from sklearn.preprocessing import StandardScaler
+                        scaler = StandardScaler()
+                    
+                    feature_names = None
+                    features_path = os.path.join(model_dir, "feature_names.pkl")
+                    if os.path.exists(features_path):
+                        feature_names = joblib.load(features_path)
+                    else:
+                        feature_names = [
+                            'co', 'no', 'no2', 'o3', 'so2', 'pm2_5', 'pm10', 'nh3',
+                            'hour', 'day', 'day_of_week', 'month', 'is_weekend',
+                            'aqi_change_rate', 'rolling_aqi_3h', 'rolling_aqi_6h', 'rolling_aqi_24h'
+                        ]
+                    
+                    return fs, gb_model, scaler, feature_names, project
+                    
+                except Exception:
+                    return None, None, None, None, None
+
+            fs, gb_model, scaler, feature_names, project = load_model_and_components()
+            
+            if fs is None:
+                raise Exception("Failed to load components")
+                
+            using_hopsworks = True
+            
+        except Exception as e:
+            st.warning(f"Could not connect to Hopsworks: {str(e)}")
+            st.info("Using sample data for demonstration")
+            from sklearn.ensemble import GradientBoostingRegressor
+            from sklearn.preprocessing import StandardScaler
+            
+            feature_names = ['co', 'no', 'no2', 'o3', 'so2', 'pm2_5', 'pm10', 'nh3', 'hour', 'day', 'day_of_week', 'month', 'is_weekend', 'aqi_change_rate', 'rolling_aqi_3h', 'rolling_aqi_6h', 'rolling_aqi_24h']
+            gb_model = GradientBoostingRegressor(n_estimators=100, random_state=42)
+            X_sample = np.random.randn(1000, len(feature_names))
+            y_sample = np.random.uniform(1, 5, 1000)
+            gb_model.fit(X_sample, y_sample)
+            
+            scaler = StandardScaler()
+            scaler.fit(X_sample)
+            fs = None
+            project = None
+            using_hopsworks = False
     
-    sample_data = pd.DataFrame({
-        'co': [np.random.uniform(200, 400)],  # Karachi CO: 200-400 µg/m³
-        'no': [np.random.randint(0, 10)],
-        'no2': [np.random.uniform(20, 60)],  # Karachi NO2: 20-60 ppb
-        'o3': [np.random.uniform(20, 80)],   # Karachi O3: 20-80 ppb
-        'so2': [np.random.uniform(5, 30)],   # Karachi SO2: 5-30 ppb
-        'pm2_5': [np.random.uniform(40, 120)],  # Karachi PM2.5: 40-120 µg/m³
-        'pm10': [np.random.uniform(80, 200)],   # Karachi PM10: 80-200 µg/m³
-        'nh3': [np.random.uniform(5, 25)],    # Karachi NH3: 5-25 ppb
-        'hour': [now.hour],
-        'day': [now.day],
-        'day_of_week': [now.weekday()],
-        'month': [now.month],
-        'is_weekend': [1 if now.weekday() >= 5 else 0],
-        'aqi_change_rate': [np.random.uniform(-0.3, 0.3)],
-        'rolling_aqi_3h': [np.random.uniform(2.0, 4.0)],
-        'rolling_aqi_6h': [np.random.uniform(2.0, 4.0)],
-        'rolling_aqi_24h': [np.random.uniform(2.0, 4.0)]
-    })
-    
-    for feature in feature_names:
-        if feature not in sample_data.columns:
-            sample_data[feature] = 0
-    
-    return sample_data[feature_names]
+    def get_latest_features(fs, feature_names):
+        try:
+            fv = fs.get_feature_view(
+                name="aqi_feature_view",
+                version=1
+            )
+            
+            end_time = datetime.now()
+            start_time = end_time - timedelta(days=7)  # Increased lookback to ensure data availability
+            
+            batch_data = fv.get_batch_data(
+                start_time=start_time,
+                end_time=end_time
+            )
+            
+            if isinstance(batch_data, tuple) and len(batch_data) == 2:
+                X, y = batch_data
+            else:
+                X = batch_data
+            
+            if X is not None and not X.empty:
+                available_features = [f for f in feature_names if f in X.columns]
+                X_filtered = X[available_features].copy()
+                
+                latest_sample = X_filtered.iloc[-1:].copy()
+                
+                for feature in feature_names:
+                    if feature not in latest_sample.columns:
+                        latest_sample[feature] = 0
+                
+                return latest_sample[feature_names]
+            
+        except Exception:
+            pass
+        
+        return None
+
+    def create_sample_data(feature_names):
+        now = datetime.now()
+        
+        sample_data = pd.DataFrame({
+            'co': [np.random.uniform(200, 400)],
+            'no': [np.random.randint(0, 10)],
+            'no2': [np.random.uniform(20, 60)],
+            'o3': [np.random.uniform(20, 80)],
+            'so2': [np.random.uniform(5, 30)],
+            'pm2_5': [np.random.uniform(40, 120)],
+            'pm10': [np.random.uniform(80, 200)],
+            'nh3': [np.random.uniform(5, 25)],
+            'hour': [now.hour],
+            'day': [now.day],
+            'day_of_week': [now.weekday()],
+            'month': [now.month],
+            'is_weekend': [1 if now.weekday() >= 5 else 0],
+            'aqi_change_rate': [np.random.uniform(-0.3, 0.3)],
+            'rolling_aqi_3h': [np.random.uniform(2.0, 4.0)],
+            'rolling_aqi_6h': [np.random.uniform(2.0, 4.0)],
+            'rolling_aqi_24h': [np.random.uniform(2.0, 4.0)]
+        })
+        
+        for feature in feature_names:
+            if feature not in sample_data.columns:
+                sample_data[feature] = 0
+        
+        return sample_data[feature_names]
+
+    if gb_model and scaler and feature_names:
+        with st.spinner("Fetching latest features..."):
+            if using_hopsworks:
+                latest_sample = get_latest_features(fs, feature_names)
+                if latest_sample is not None:
+                    st.session_state['using_sample_data'] = False
+                else:
+                    st.session_state['using_sample_data'] = True
+                    latest_sample = create_sample_data(feature_names)
+                    st.info("📊 Using sample data for demonstration")
+            else:
+                st.session_state['using_sample_data'] = True
+                latest_sample = create_sample_data(feature_names)
+                st.info("📊 Using sample data for demonstration")
+        
+        try:
+            X_scaled = scaler.transform(latest_sample.values)
+            prediction = gb_model.predict(X_scaled)[0]
+            st.session_state['prediction'] = prediction
+        except Exception as e:
+            st.error(f"Prediction error: {str(e)}")
+            prediction = np.random.uniform(2.0, 3.5)
+            st.session_state['prediction'] = prediction
 
 if 'last_refresh' not in st.session_state:
     st.session_state['last_refresh'] = datetime.now()
@@ -212,61 +327,8 @@ with st.sidebar:
     if st.session_state.get('using_sample_data', False):
         st.warning("⚠️ Using sample data")
 
-with st.spinner("Loading model and data..."):
-    try:
-        # try to load from Hopsworks
-        fs, gb_model, scaler, feature_names, project = load_model_and_components()
-        using_hopsworks = True
-    except Exception as e:
-        st.warning(f"Could not connect to Hopsworks: {str(e)}")
-        st.info("Using sample data for demonstration")
-        # create sample components
-        from sklearn.ensemble import GradientBoostingRegressor
-        from sklearn.preprocessing import StandardScaler
-        import joblib
-        
-        feature_names = ['co', 'no', 'no2', 'o3', 'so2', 'pm2_5', 'pm10', 'nh3', 'hour', 'day', 'day_of_week', 'month', 'is_weekend', 'aqi_change_rate', 'rolling_aqi_3h', 'rolling_aqi_6h', 'rolling_aqi_24h']
-        
-        # create sample model (trained on synthetic data)
-        gb_model = GradientBoostingRegressor(n_estimators=100, random_state=42)
-        # create synthetic training data
-        import numpy as np
-        X_sample = np.random.randn(1000, len(feature_names))
-        y_sample = np.random.uniform(1, 5, 1000)  # AQI values 1-5
-        gb_model.fit(X_sample, y_sample)
-        
-        scaler = StandardScaler()
-        scaler.fit(X_sample)
-        
-        fs = None
-        project = None
-        using_hopsworks = False
-
-if gb_model and scaler and feature_names:
+if st.session_state['prediction'] is not None:
     st.success("✅ Model loaded successfully!")
-    
-    with st.spinner("Fetching latest features..."):
-        if using_hopsworks:
-            latest_sample = get_latest_features(fs, feature_names)
-            if latest_sample is not None:
-                st.session_state['using_sample_data'] = False
-            else:
-                st.session_state['using_sample_data'] = True
-                latest_sample = create_sample_data(feature_names)
-                st.info("📊 Using sample data for demonstration")
-        else:
-            st.session_state['using_sample_data'] = True
-            latest_sample = create_sample_data(feature_names)
-            st.info("📊 Using sample data for demonstration")
-    
-    try:
-        X_scaled = scaler.transform(latest_sample.values)
-        prediction = gb_model.predict(X_scaled)[0]
-        st.session_state['prediction'] = prediction
-    except Exception as e:
-        st.error(f"Prediction error: {str(e)}")
-        prediction = np.random.uniform(2.0, 3.5)
-        st.session_state['prediction'] = prediction
     
     tab1, tab2, tab3 = st.tabs(["📊 Current AQI", "📅 3-Day Forecast", "🔍 Model Insights"])
     
@@ -315,19 +377,17 @@ if gb_model and scaler and feature_names:
                 "Very Poor"
             ]
             colors = [
-                "#00e400",  # Good
-                "#a3ff00",  # Fair
-                "#ffff00",  # Moderate
-                "#ff7e00",  # Poor
-                "#ff0000"   # Very Poor
+                "#00e400",
+                "#a3ff00",
+                "#ffff00",
+                "#ff7e00",
+                "#ff0000"
             ]
 
-            # gauge settings
             start_angle = 180
             segments = len(aqi_levels)
             segment_angle = 180 / segments
 
-            # draw gauge segments
             for i in range(segments):
                 wedge = Wedge(
                     center=(0, 0),
@@ -339,20 +399,16 @@ if gb_model and scaler and feature_names:
                 )
                 ax.add_patch(wedge)
 
-            # convert continuous AQI to OpenWeather level
             aqi_level = int(np.ceil(prediction))
             aqi_level = np.clip(aqi_level, 1, 5)
 
-            # nedle angle
             needle_angle = start_angle - (aqi_level - 0.5) * segment_angle
             x = 0.8 * np.cos(np.radians(needle_angle))
             y = 0.8 * np.sin(np.radians(needle_angle))
 
-            # draw needle
             ax.plot([0, x], [0, y], color="black", linewidth=3)
             ax.plot(0, 0, "o", color="black", markersize=10)
 
-            # add labels
             for i, label in enumerate(labels):
                 angle = start_angle - segment_angle * (i + 0.5)
                 lx = 1.15 * np.cos(np.radians(angle))
@@ -372,7 +428,6 @@ if gb_model and scaler and feature_names:
                     )
                 )
 
-            # final styling
             ax.set_aspect("equal")
             ax.set_xlim(-1.3, 1.3)
             ax.set_ylim(-0.2, 1.2)
@@ -471,7 +526,6 @@ if gb_model and scaler and feature_names:
                 """)
         
         with advisory_col2:
-            # key pollutants
             st.metric("PM2.5", f"{latest_sample['pm2_5'].iloc[0]:.1f} µg/m³")
             st.metric("PM10", f"{latest_sample['pm10'].iloc[0]:.1f} µg/m³")
             st.metric("NO₂", f"{latest_sample['no2'].iloc[0]:.1f} ppb")
@@ -494,15 +548,13 @@ if gb_model and scaler and feature_names:
         current_date = datetime.now()
         base_aqi = prediction
         
-        for i in range(1, 4):  # next 3 days
+        for i in range(1, 4):
             forecast_date = current_date + timedelta(days=i)
             forecast_dates.append(forecast_date)
             
-            # calculate forecast with realistic patterns
             day_of_week = forecast_date.weekday()
             is_weekend = 1 if day_of_week >= 5 else 0
             
-            # add patterns
             weekend_effect = 0.2 if is_weekend else -0.1
             day_effect = i * 0.1
             random_effect = np.random.uniform(-0.3, 0.3)
@@ -524,13 +576,13 @@ if gb_model and scaler and feature_names:
         def color_cells(val):
             if isinstance(val, (int, float)):
                 if val <= 2:
-                    return 'background-color: #d4edda; color: #155724;'  # Good/Fair - green
+                    return 'background-color: #d4edda; color: #155724;'
                 elif val <= 3:
-                    return 'background-color: #fff3cd; color: #856404;'  # Moderate - yellow
+                    return 'background-color: #fff3cd; color: #856404;'
                 elif val <= 4:
-                    return 'background-color: #f8d7da; color: #721c24;'  # Poor - red
+                    return 'background-color: #f8d7da; color: #721c24;'
                 else:
-                    return 'background-color: #721c24; color: white;'  # Very Poor - dark red
+                    return 'background-color: #721c24; color: white;'
             return ''
         
         display_df = forecast_df[['Date', 'Day', 'Predicted AQI', 'Status']].copy()
@@ -630,9 +682,14 @@ if gb_model and scaler and feature_names:
             with insight_tab1:
                 st.subheader("📊 Feature Analysis")
                 
-                if hasattr(gb_model, 'feature_importances_'):
-                    importances = gb_model.feature_importances_
-                    
+                importances = None
+                if gb_model:
+                     if hasattr(gb_model, 'feature_importances_'):
+                         importances = gb_model.feature_importances_
+                     elif hasattr(gb_model, 'coef_'):
+                         importances = np.abs(gb_model.coef_)
+
+                if importances is not None:
                     feature_importance_df = pd.DataFrame({
                         'Feature': feature_names,
                         'Importance': importances,
@@ -851,7 +908,6 @@ if gb_model and scaler and feature_names:
                                     edgecolor='brown', linewidth=2))
                 axes[1].set_title('Error Reduction (%)', fontweight='bold')
                 
-                # training vs validation performance
                 train_val_data = {
                     'Model': ['Gradient Boosting', 'Random Forest', 'Ridge Regression'],
                     'Training R²': [0.999976, 0.999730, 0.994933],
@@ -921,7 +977,6 @@ if gb_model and scaler and feature_names:
             with insight_tab3:
                 st.subheader("🔧 Technical Specifications")
                 
-                # Technical specs in columns
                 spec_col1, spec_col2, spec_col3 = st.columns(3)
                 
                 with spec_col1:
@@ -1089,6 +1144,7 @@ if gb_model and scaler and feature_names:
                     • **Data Latency:** < 1 minute
                     • **Accuracy SLA:** > 99%
                     """)
+
 else:
     st.error("""
     ❌ System Initialization Failed
@@ -1101,13 +1157,8 @@ else:
     
     **Setup commands:**
     ```bash
-    # Add API key to .env
     echo "HOPSWORKS_API_KEY=your_key_here" > .env
-    
-    # Run training
     python -m src.models.train_models
-    
-    # Start dashboard
     streamlit run app/app.py
     ```
     """)

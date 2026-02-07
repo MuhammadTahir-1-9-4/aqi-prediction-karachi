@@ -44,10 +44,46 @@ data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
-models_artifacts/
-registry_artifacts/
-shap_outputs/
-eda_outputs/
 
-# Logs
+# Model and artifact storage (use Feature Store/Model Registry instead)
+models_artifacts/
+models_artifacts/**
+registry_artifacts/
+registry_artifacts/**
+
+# Analysis outputs (can be regenerated)
+eda_outputs/
+eda_outputs/**
+shap_outputs/
+shap_outputs/**
+
+# Temporary data files
+*.csv
+*.parquet
+*.pkl
+*.pickle
+*.joblib
+!requirements.txt
+
+# Streamlit cache and secrets
+.streamlit/
+.streamlit/secrets.toml
+
+# Logs and debugging
 *.log
+logs/
+*.tmp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*~
+.~*
+
+# Cache
+.cache/
+*.cache
