@@ -114,9 +114,15 @@ else:
             @st.cache_resource(ttl=300)
             def load_model_and_components():
                 try:
-                    api_key = os.getenv("HOPSWORKS_API_KEY")
+                    # Try to get API key from Streamlit secrets or environment variables
+                    api_key = None
+                    if "HOPSWORKS_API_KEY" in st.secrets:
+                        api_key = st.secrets["HOPSWORKS_API_KEY"]
+                    else:
+                        api_key = os.getenv("HOPSWORKS_API_KEY")
+
                     if not api_key:
-                        st.warning("⚠️ HOPSWORKS_API_KEY not found in secrets. Using sample data.")
+                        st.error("❌ Critical: HOPSWORKS_API_KEY not found in secrets!")
                         return None, None, None, None, None
 
                     project = hopsworks.login(
@@ -142,6 +148,7 @@ else:
                             break
                     
                     if model_file is None:
+                        st.error("❌ Model file not found in downloaded artifacts")
                         return None, None, None, None, None
                     
                     gb_model = joblib.load(model_file)
@@ -167,7 +174,9 @@ else:
                     
                     return fs, gb_model, scaler, feature_names, project
                     
-                except Exception:
+                except Exception as e:
+                    st.error(f"❌ Error loading from Hopsworks: {str(e)}")
+                    st.info("💡 Tip: Check that your HOPSWORKS_API_KEY is correctly set in Streamlit Secrets")
                     return None, None, None, None, None
 
             fs, gb_model, scaler, feature_names, project = load_model_and_components()
@@ -197,38 +206,60 @@ else:
     
     def get_latest_features(fs, feature_names):
         try:
-            fv = fs.get_feature_view(
-                name="aqi_feature_view",
+            fg = fs.get_feature_group(
+                name="aqi_feature_group",
                 version=1
             )
             
-            end_time = datetime.now()
-            start_time = end_time - timedelta(days=7)  # Increased lookback to ensure data availability
+            # workaround for schema issue - read directly from feature group
+            df = fg.read()
             
-            batch_data = fv.get_batch_data(
-                start_time=start_time,
-                end_time=end_time
-            )
-            
-            if isinstance(batch_data, tuple) and len(batch_data) == 2:
-                X, y = batch_data
-            else:
-                X = batch_data
-            
-            if X is not None and not X.empty:
-                available_features = [f for f in feature_names if f in X.columns]
-                X_filtered = X[available_features].copy()
+            if df is not None and not df.empty:
+                # sort by event_id (timestamp) to get most recent
+                if 'event_id' in df.columns:
+                    df = df.sort_values('event_id', ascending=False)
                 
-                latest_sample = X_filtered.iloc[-1:].copy()
+                # get available features
+                available_features = [f for f in feature_names if f in df.columns]
+                X_filtered = df[available_features].copy()
                 
+                latest_sample = X_filtered.iloc[:1].copy()
+                
+                # fill missing features with 0
                 for feature in feature_names:
                     if feature not in latest_sample.columns:
                         latest_sample[feature] = 0
                 
                 return latest_sample[feature_names]
-            
+        
         except Exception:
-            pass
+            # fallback to old method if new approach fails
+            try:
+                fv = fs.get_feature_view(
+                    name="aqi_feature_view",
+                    version=1
+                )
+                
+                batch_data = fv.get_batch_data()
+                
+                if isinstance(batch_data, tuple) and len(batch_data) == 2:
+                    X, y = batch_data
+                else:
+                    X = batch_data
+                
+                if X is not None and not X.empty:
+                    available_features = [f for f in feature_names if f in X.columns]
+                    X_filtered = X[available_features].copy()
+                    
+                    latest_sample = X_filtered.iloc[-1:].copy()
+                    
+                    for feature in feature_names:
+                        if feature not in latest_sample.columns:
+                            latest_sample[feature] = 0
+                    
+                    return latest_sample[feature_names]
+            except Exception:
+                pass
         
         return None
 
@@ -322,7 +353,7 @@ with st.sidebar:
         index=0
     )
     
-    if st.button("🔄 Refresh Data", type="primary", use_container_width=True):
+    if st.button("🔄 Refresh Data", type="primary", width='stretch'):
         st.session_state['last_refresh'] = datetime.now()
         st.rerun()
     
@@ -438,13 +469,13 @@ if st.session_state['prediction'] is not None:
             ax.set_ylim(-0.2, 1.2)
             ax.axis("off")
 
-            st.pyplot(fig, use_container_width=True)
+            st.pyplot(fig, width='stretch')
 
 
         
         with st.expander("📋 View Feature Values", expanded=False):
             st.dataframe(latest_sample.T.rename(columns={0: 'Value'}), 
-                        use_container_width=True)
+                        width='stretch')
         
         st.subheader("⚠️ Health Advisory")
         
@@ -595,7 +626,7 @@ if st.session_state['prediction'] is not None:
             color_cells, subset=['Predicted AQI']
         )
         
-        st.dataframe(styled_df, hide_index=True, use_container_width=True)
+        st.dataframe(styled_df, hide_index=True, width='stretch')
         
         st.subheader("📈 Forecast Trend")
         
@@ -728,7 +759,7 @@ if st.session_state['prediction'] is not None:
                             .head(10)
                             .style.format({'Importance_Percent': '{:.2f}%'})
                             .background_gradient(cmap='viridis', subset=['Importance_Percent']),
-                            use_container_width=True,
+                            width='stretch',
                             height=400
                         )
                     
@@ -785,7 +816,7 @@ if st.session_state['prediction'] is not None:
                             .style.apply(lambda x: ['background: #d4edda' if v == 'High' 
                                                 else 'background: #fff3cd' for v in x], 
                                     subset=['Impact']),
-                            use_container_width=True,
+                            width='stretch',
                             height=300
                         )
                 
@@ -869,7 +900,7 @@ if st.session_state['prediction'] is not None:
                 st.dataframe(
                     styled_comparison,
                     hide_index=True,
-                    use_container_width=True
+                    width='stretch'
                 )
                 
                 st.subheader("📈 Visual Performance Comparison")
