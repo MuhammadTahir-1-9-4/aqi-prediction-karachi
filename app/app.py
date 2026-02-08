@@ -773,32 +773,32 @@ if st.session_state['prediction'] is not None:
                         st.markdown("""
                         **📈 High Impact Features:**
                         
-                        1. **PM2.5** - Fine particulate matter
-                        - Primary contributor to AQI
+                        1. **Rolling AQI (3h)** - captures short-term atmospheric trends
+                        - Most significant predictor
+                        - Captures immediate pollution momentum
+                        
+                        2. **PM2.5** - Fine particulate matter
+                        - Primary contributor to health risk
                         - Penetrates deep into lungs
                         
-                        2. **PM10** - Coarse particulate matter
+                        3. **PM10** - Coarse particulate matter
                         - Affects respiratory system
                         - Linked to visibility reduction
-                        
-                        3. **Hour of Day** - Temporal pattern
-                        - Peak hours: 8-10 AM, 5-7 PM
-                        - Nighttime: Usually lower
                         """)
                     
                     with insight_col2:
                         st.markdown("""
                         **🔄 Dynamic Features:**
                         
-                        4. **Rolling AQI Averages**
-                        - 3h, 6h, 24h windows
-                        - Capture pollution trends
-                        - Smooth out spikes
+                        4. **AQI Change Rate**
+                        - Measures shift in air quality
+                        - Identifies rapid deterioration
+                        - Critical for early warning
                         
-                        5. **Day of Week**
-                        - Weekends vs Weekdays
-                        - Traffic patterns
-                        - Industrial activity cycles
+                        5. **O3 (Ozone)**
+                        - Secondary pollutant
+                        - High impact during sunlight
+                        - Linked to smog formation
                         """)
                     
                     st.subheader("📋 Current Feature Values")
