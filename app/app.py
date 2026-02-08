@@ -1095,22 +1095,22 @@ if st.session_state['prediction'] is not None:
                     **Model Evaluation Protocol:**
                     
                     1. **Dataset Preparation:**
-                    - Time period: Jan 2020 - Dec 2023
+                    - Time period: Jan 2025 - Dec 2026
                     - Location: Karachi metropolitan area
                     - Sampling: Hourly measurements
                     
                     2. **Data Split Strategy:**
-                    - Training: 80% (13,788 samples)
-                    - Validation: 20% (3,447 samples)
+                    - Hold-out Strategy
+                    - Training: 80% split
+                    - Validation: 20% split
                     - Temporal split (no leakage)
                     
                     3. **Evaluation Metrics:**
                     - **R² Score:** Coefficient of determination
                     - **RMSE:** Root Mean Squared Error
                     - **MAE:** Mean Absolute Error
-                    - **MAPE:** Mean Absolute Percentage Error
                     
-                    4. **Model Parameters:**
+                    4. **Model Parameters (Current):**
                     - **Gradient Boosting:** 
                         - n_estimators=200
                         - learning_rate=0.05
@@ -1126,16 +1126,9 @@ if st.session_state['prediction'] is not None:
                         - alpha=1.0
                         - random_state=42
                     
-                    5. **Selection Criteria (Weighted):**
-                    - R² Score: 40% weight
-                    - RMSE: 30% weight
-                    - MAE: 20% weight
-                    - Generalization Gap: 10% weight
-                    
-                    6. **Statistical Significance:**
-                    - Paired t-tests
-                    - Confidence intervals (95%)
-                    - Cross-validation scores
+                    5. **Selection Criteria:**
+                    - Primary: R² Score (Validation set)
+                    - Secondary: Model Generalization (Train-Val gap)
                     """)
                 
                 st.subheader("📈 Performance Summary")
