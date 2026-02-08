@@ -1153,25 +1153,25 @@ if st.session_state['prediction'] is not None:
                 
                 with deploy_col1:
                     st.markdown("""
-                    **🖥️ System Architecture:**
-                    
-                    • **Frontend:** Streamlit Dashboard
-                    • **Backend:** Hopsworks Feature Store
-                    • **Model Registry:** Hopsworks
-                    • **API:** RESTful endpoints
-                    • **Database:** PostgreSQL
-                    """)
+                     **🖥️ System Architecture:**
+                     
+                     • **Frontend:** Streamlit Dashboard
+                     • **Backend:** Hopsworks Feature Store
+                     • **Model Registry:** Hopsworks
+                     • **API:** Hopsworks Python SDK
+                     • **Automation:** GitHub Actions
+                     """)
                 
                 with deploy_col2:
                     st.markdown("""
-                    **⏱️ Performance Metrics:**
-                    
-                    • **Inference Time:** < 100ms
-                    • **Uptime:** 99.9%
-                    • **Refresh Rate:** 5 minutes
-                    • **Data Latency:** < 1 minute
-                    • **Accuracy SLA:** > 99%
-                    """)
+                     **⏱️ Performance Metrics:**
+                     
+                     • **Inference Time:** < 100ms
+                     • **Uptime:** 99.9%
+                     • **Refresh Rate:** 1 Hour (CRON)
+                     • **Data Latency:** < 5 Minutes
+                     • **Accuracy SLA:** > 99%
+                     """)
 
 else:
     st.error("""
