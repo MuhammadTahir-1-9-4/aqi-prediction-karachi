@@ -1095,7 +1095,7 @@ if st.session_state['prediction'] is not None:
                     **Model Evaluation Protocol:**
                     
                     1. **Dataset Preparation:**
-                    - Time period: Jan 2025 - Dec 2026
+                    - Time period: Jan 2025 - Jan 2026
                     - Location: Karachi metropolitan area
                     - Sampling: Hourly measurements
                     
