@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 import warnings
 import requests
 import time
+import plotly.express as px
+import plotly.graph_objects as go
 
 warnings.filterwarnings('ignore')
 
@@ -316,6 +318,28 @@ else:
             prediction = np.random.uniform(2.0, 3.5)
             st.session_state['prediction'] = prediction
 
+@st.cache_data(ttl=3600)
+def get_historical_data_for_eda():
+    """Fetch historical data from Hopsworks for EDA visualizations."""
+    try:
+        api_key = os.getenv("HOPSWORKS_API_KEY") or st.secrets.get("HOPSWORKS_API_KEY")
+        if not api_key:
+            return None
+            
+        project = hopsworks.login(api_key_value=api_key, project="aqi_predicton")
+        fs = project.get_feature_store()
+        
+        # Get the feature group
+        fg = fs.get_feature_group(name='aqi_feature_group', version=1)
+        
+        # Read a sample of data (last 30 days roughly, or just head for performance)
+        # For EDA we want a bit more data but let's limit to 500 rows for speed
+        df = fg.read(read_options={"use_hive": False}).sort_values('datetime', ascending=False).head(500)
+        return df
+    except Exception as e:
+        st.warning(f"Could not fetch historical data for EDA: {str(e)}")
+        return None
+
 if 'last_refresh' not in st.session_state:
     st.session_state['last_refresh'] = datetime.now()
 if 'using_sample_data' not in st.session_state:
@@ -366,7 +390,7 @@ with st.sidebar:
 if st.session_state['prediction'] is not None:
     st.success("✅ Model loaded successfully!")
     
-    tab1, tab2, tab3 = st.tabs(["📊 Current AQI", "📅 3-Day Forecast", "🔍 Model Insights"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Current AQI", "📅 3-Day Forecast", "📊 Data Exploration", "🔍 Model Insights"])
     
     with tab1:
         st.header("Current AQI Status")
@@ -711,6 +735,59 @@ if st.session_state['prediction'] is not None:
             """)
     
     with tab3:
+        st.header("📊 Data Exploration")
+        st.markdown("Discover historical patterns and pollutant relationships in Karachi's air quality data.")
+        
+        hist_df = get_historical_data_for_eda()
+        
+        if hist_df is not None:
+            # 1. temporal Analysis
+            st.subheader("📈 AQI Time Series (Last 500 Samples)")
+            fig_time = px.line(hist_df, x='datetime', y='aqi', 
+                             title="AQI Variation Over Time",
+                             color_discrete_sequence=['#ff7e00'])
+            fig_time.update_layout(xaxis_title="Date/Time", yaxis_title="AQI Level")
+            st.plotly_chart(fig_time, use_container_width=True)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # 2. diurnal Cycle (Hour of Day)
+                st.subheader("⏱️ Diurnal Pollution Cycle")
+                hist_df['hour_of_day'] = pd.to_datetime(hist_df['datetime']).dt.hour
+                hourly_avg = hist_df.groupby('hour_of_day')['aqi'].mean().reset_index()
+                fig_hour = px.bar(hourly_avg, x='hour_of_day', y='aqi',
+                                title="Average AQI by Hour of Day",
+                                labels={'hour_of_day': 'Hour (24h)', 'aqi': 'Avg AQI'},
+                                color='aqi', color_continuous_scale='Oranges')
+                st.plotly_chart(fig_hour, use_container_width=True)
+                st.info("💡 Useful to identify peak pollution hours (morning/evening traffic).")
+            
+            with col2:
+                # 3. pollutant Contribution
+                st.subheader("🧪 Pollutant Distribution")
+                pollutants = ['pm2_5', 'pm10', 'no2', 'o3', 'so2', 'co']
+                avg_pollutants = hist_df[pollutants].mean().sort_values(ascending=False).reset_index()
+                avg_pollutants.columns = ['Pollutant', 'Avg Concentration']
+                fig_poll = px.pie(avg_pollutants, values='Avg Concentration', names='Pollutant',
+                                title="Average Pollutant Share",
+                                hole=.3, color_discrete_sequence=px.colors.qualitative.Pastel)
+                st.plotly_chart(fig_poll, use_container_width=True)
+
+            # 4. correlation Heatmap
+            st.subheader("🔗 Pollutant Correlations")
+            corr = hist_df[pollutants + ['aqi']].corr()
+            fig_corr = px.imshow(corr, text_auto=True, aspect="auto",
+                               title="Correlation Heatmap (Pollutants vs AQI)",
+                               color_continuous_scale='RdBu_r', origin='lower')
+            st.plotly_chart(fig_corr, use_container_width=True)
+            st.info("💡 High positive values (red) show strong relationships between pollutants and overall AQI.")
+            
+        else:
+            st.warning("⚠️ No historical data available for EDA. Please ensure the pipeline has run and data is in Hopsworks.")
+            st.info("If you are using sample data, the EDA tab requires a connection to Hopsworks to fetch historical trends.")
+
+    with tab4:
             st.header("🔍 Model Insights & Explainability")
     
             insight_tab1, insight_tab2, insight_tab3 = st.tabs(["📊 Feature Analysis", "🏆 Model Comparison", "🔧 Technical Details"])
