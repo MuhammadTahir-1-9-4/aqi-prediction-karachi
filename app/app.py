@@ -1051,42 +1051,41 @@ if st.session_state['prediction'] is not None:
                 
                 with data_col1:
                     st.markdown("""
-                    **🌍 Data Collection:**
-                    
-                    • **Real-time Monitoring:**
-                    - EPA-certified sensors
-                    - Hourly measurements
-                    - Quality-controlled
-                    
-                    • **Meteorological Data:**
-                    - Temperature
-                    - Humidity
-                    - Wind speed/direction
-                    
-                    • **Temporal Features:**
-                    - Time of day
-                    - Day of week
-                    - Seasonal patterns
+                        **🌍 Data Collection:**
+                        
+                        • **Real-time Monitoring:**
+                        - OpenWeather Air Pollution API
+                        - Hourly measurements
+                        - Quality-controlled
+                        
+                        • **Pollutant Coverage:**
+                        - 8 Primary pollutants (PM2.5, PM10, etc.)
+                        - Historical and Current values
+                        
+                        • **Temporal Features:**
+                        - Hour of day
+                        - Day of week
+                        - Weekend / Weekday patterns
                     """)
                 
                 with data_col2:
                     st.markdown("""
-                    **🔧 Data Processing:**
-                    
-                    • **Preprocessing:**
-                    - Missing value imputation
-                    - Outlier detection
-                    - Feature scaling
-                    
-                    • **Feature Engineering:**
-                    - Rolling averages
-                    - Change rates
-                    - Interaction terms
-                    
-                    • **Validation:**
-                    - Cross-validation
-                    - Backtesting
-                    - A/B testing
+                        **🔧 Data Processing:**
+                        
+                        • **Preprocessing:**
+                        - Missing value imputation
+                        - Outlier detection
+                        - Feature scaling (StandardScaler)
+                        
+                        • **Feature Engineering:**
+                        - Rolling averages (3h, 6h, 24h)
+                        - Change rates
+                        - Temporal encoding
+                        
+                        • **Validation:**
+                        - Hold-out Validation (80/20)
+                        - Model Registry
+                        - Performance Tracking
                     """)
                 
                 st.subheader("📊 Evaluation Methodology")
