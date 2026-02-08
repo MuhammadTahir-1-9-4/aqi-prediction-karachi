@@ -771,35 +771,35 @@ if st.session_state['prediction'] is not None:
                     
                     with insight_col1:
                         st.markdown("""
-                        **📈 High Impact Features:**
-                        
-                        1. **Rolling AQI (3h)** - captures short-term atmospheric trends
-                        - Most significant predictor
-                        - Captures immediate pollution momentum
-                        
-                        2. **PM2.5** - Fine particulate matter
-                        - Primary contributor to health risk
-                        - Penetrates deep into lungs
-                        
-                        3. **PM10** - Coarse particulate matter
-                        - Affects respiratory system
-                        - Linked to visibility reduction
-                        """)
+**📈 High Impact Features:**
+
+1. **Rolling AQI (3h)** - captures short-term atmospheric trends
+- Most significant predictor
+- Captures immediate pollution momentum
+
+2. **PM2.5** - Fine particulate matter
+- Primary contributor to health risk
+- Penetrates deep into lungs
+
+3. **PM10** - Coarse particulate matter
+- Affects respiratory system
+- Linked to visibility reduction
+""")
                     
                     with insight_col2:
                         st.markdown("""
-                        **🔄 Dynamic Features:**
-                        
-                        4. **AQI Change Rate**
-                        - Measures shift in air quality
-                        - Identifies rapid deterioration
-                        - Critical for early warning
-                        
-                        5. **O3 (Ozone)**
-                        - Secondary pollutant
-                        - High impact during sunlight
-                        - Linked to smog formation
-                        """)
+**🔄 Dynamic Features:**
+
+4. **AQI Change Rate**
+- Measures shift in air quality
+- Identifies rapid deterioration
+- Critical for early warning
+
+5. **O3 (Ozone)**
+- Secondary pollutant
+- High impact during sunlight
+- Linked to smog formation
+""")
                     
                     st.subheader("📋 Current Feature Values")
                     
@@ -1050,86 +1050,86 @@ if st.session_state['prediction'] is not None:
                 data_col1, data_col2 = st.columns(2)
                 
                 with data_col1:
-                    st.markdown("""
-                        **🌍 Data Collection:**
-                        
-                        • **Real-time Monitoring:**
-                        - OpenWeather Air Pollution API
-                        - Hourly measurements
-                        - Quality-controlled
-                        
-                        • **Pollutant Coverage:**
-                        - 8 Primary pollutants (PM2.5, PM10, etc.)
-                        - Historical and Current values
-                        
-                        • **Temporal Features:**
-                        - Hour of day
-                        - Day of week
-                        - Weekend / Weekday patterns
-                    """)
+                        st.markdown("""
+**🌍 Data Collection:**
+
+- **Real-time Monitoring:**
+- OpenWeather Air Pollution API
+- Hourly measurements
+- Quality-controlled
+
+- **Pollutant Coverage:**
+- 8 Primary pollutants (PM2.5, PM10, etc.)
+- Historical and Current values
+
+- **Temporal Features:**
+- Hour of day
+- Day of week
+- Weekend / Weekday patterns
+""")
                 
                 with data_col2:
-                    st.markdown("""
-                        **🔧 Data Processing:**
-                        
-                        • **Preprocessing:**
-                        - Missing value imputation
-                        - Outlier detection
-                        - Feature scaling (StandardScaler)
-                        
-                        • **Feature Engineering:**
-                        - Rolling averages (3h, 6h, 24h)
-                        - Change rates
-                        - Temporal encoding
-                        
-                        • **Validation:**
-                        - Hold-out Validation (80/20)
-                        - Model Registry
-                        - Performance Tracking
-                    """)
+                        st.markdown("""
+**🔧 Data Processing:**
+
+- **Preprocessing:**
+- Missing value imputation
+- Outlier detection
+- Feature scaling (StandardScaler)
+
+- **Feature Engineering:**
+- Rolling averages (3h, 6h, 24h)
+- Change rates
+- Temporal encoding
+
+- **Validation:**
+- Hold-out Validation (80/20)
+- Model Registry
+- Performance Tracking
+""")
                 
                 st.subheader("📊 Evaluation Methodology")
                 
                 with st.expander("View Detailed Evaluation Protocol", expanded=False):
                     st.markdown("""
-                    **Model Evaluation Protocol:**
-                    
-                    1. **Dataset Preparation:**
-                    - Time period: Jan 2025 - Jan 2026
-                    - Location: Karachi metropolitan area
-                    - Sampling: Hourly measurements
-                    
-                    2. **Data Split Strategy:**
-                    - Hold-out Strategy
-                    - Training: 80% split
-                    - Validation: 20% split
-                    - Temporal split (no leakage)
-                    
-                    3. **Evaluation Metrics:**
-                    - **R² Score:** Coefficient of determination
-                    - **RMSE:** Root Mean Squared Error
-                    - **MAE:** Mean Absolute Error
-                    
-                    4. **Model Parameters (Current):**
-                    - **Gradient Boosting:** 
-                        - n_estimators=200
-                        - learning_rate=0.05
-                        - max_depth=5
-                        - random_state=42
-                    
-                    - **Random Forest:**
-                        - n_estimators=200
-                        - max_depth=12
-                        - random_state=42
-                    
-                    - **Ridge Regression:**
-                        - alpha=1.0
-                        - random_state=42
-                    
-                    5. **Selection Criteria:**
-                    - Primary: R² Score (Validation set)
-                    - Secondary: Model Generalization (Train-Val gap)
-                    """)
+**Model Evaluation Protocol:**
+
+1. **Dataset Preparation:**
+- Time period: Jan 2025 - Jan 2026
+- Location: Karachi metropolitan area
+- Sampling: Hourly measurements
+
+2. **Data Split Strategy:**
+- Hold-out Strategy
+- Training: 80% split
+- Validation: 20% split
+- Temporal split (no leakage)
+
+3. **Evaluation Metrics:**
+- **R² Score:** Coefficient of determination
+- **RMSE:** Root Mean Squared Error
+- **MAE:** Mean Absolute Error
+
+4. **Model Parameters (Current):**
+- **Gradient Boosting:** 
+    - n_estimators=200
+    - learning_rate=0.05
+    - max_depth=5
+    - random_state=42
+
+- **Random Forest:**
+    - n_estimators=200
+    - max_depth=12
+    - random_state=42
+
+- **Ridge Regression:**
+    - alpha=1.0
+    - random_state=42
+
+5. **Selection Criteria:**
+- Primary: R² Score (Validation set)
+- Secondary: Model Generalization (Train-Val gap)
+""")
                 
                 st.subheader("📈 Performance Summary")
                 
@@ -1153,25 +1153,25 @@ if st.session_state['prediction'] is not None:
                 
                 with deploy_col1:
                     st.markdown("""
-                     **🖥️ System Architecture:**
-                     
-                     • **Frontend:** Streamlit Dashboard
-                     • **Backend:** Hopsworks Feature Store
-                     • **Model Registry:** Hopsworks
-                     • **API:** Hopsworks Python SDK
-                     • **Automation:** GitHub Actions
-                     """)
-                
+**🖥️ System Architecture:**
+
+- **Frontend:** Streamlit Dashboard
+- **Backend:** Hopsworks Feature Store
+- **Model Registry:** Hopsworks
+- **API:** Hopsworks Python SDK
+- **Automation:** GitHub Actions
+""")
+
                 with deploy_col2:
                     st.markdown("""
-                     **⏱️ Performance Metrics:**
-                     
-                     • **Inference Time:** < 100ms
-                     • **Uptime:** 99.9%
-                     • **Refresh Rate:** 1 Hour (CRON)
-                     • **Data Latency:** < 5 Minutes
-                     • **Accuracy SLA:** > 99%
-                     """)
+**⏱️ Performance Metrics:**
+
+- **Inference Time:** < 100ms
+- **Uptime:** 99.9%
+- **Refresh Rate:** 1 Hour (CRON)
+- **Data Latency:** < 5 Minutes
+- **Accuracy SLA:** > 99%
+""")
 
 else:
     st.error("""
