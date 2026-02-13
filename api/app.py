@@ -35,8 +35,7 @@ def load_model_components():
         fs = project.get_feature_store()
 
         aqi_model = mr.get_model(
-            name="aqi_gradient_boosting_model",
-            version=1
+            name="aqi_gradient_boosting_model"
         )
 
         model_dir = aqi_model.download()

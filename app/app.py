@@ -136,8 +136,7 @@ else:
                     fs = project.get_feature_store()
                     
                     model = mr.get_model(
-                        name="aqi_gradient_boosting_model",
-                        version=1
+                        name="aqi_gradient_boosting_model"
                     )
                     
                     model_dir = model.download()
