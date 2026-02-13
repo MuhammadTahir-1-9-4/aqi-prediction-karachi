@@ -171,8 +171,7 @@ def daily_training_pipeline():
                 "train_mae": float(best_metrics['train_mae'])
             },
             description=f"AQI Prediction Model - Trained {datetime.now().date()}",
-            input_example=X.iloc[:1].to_dict('records')[0],
-            feature_names=feature_names
+            input_example=X.iloc[:1]
         )
         
         model_dir = f"registry_artifacts/model_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
