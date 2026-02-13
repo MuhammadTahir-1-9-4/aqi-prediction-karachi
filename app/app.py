@@ -773,7 +773,7 @@ if st.session_state['prediction'] is not None:
                              title="AQI Variation Over Time",
                              color_discrete_sequence=['#ff7e00'])
             fig_time.update_layout(xaxis_title="Date/Time", yaxis_title="AQI Level")
-            st.plotly_chart(fig_time, use_container_width=True)
+            st.plotly_chart(fig_time, width='stretch')
             
             col1, col2 = st.columns(2)
             
@@ -786,7 +786,7 @@ if st.session_state['prediction'] is not None:
                                 title="Average AQI by Hour of Day",
                                 labels={'hour_of_day': 'Hour (24h)', 'aqi': 'Avg AQI'},
                                 color='aqi', color_continuous_scale='Oranges')
-                st.plotly_chart(fig_hour, use_container_width=True)
+                st.plotly_chart(fig_hour, width='stretch')
                 st.info("💡 Useful to identify peak pollution hours (morning/evening traffic).")
             
             with col2:
@@ -798,7 +798,7 @@ if st.session_state['prediction'] is not None:
                 fig_poll = px.pie(avg_pollutants, values='Avg Concentration', names='Pollutant',
                                 title="Average Pollutant Share",
                                 hole=.3, color_discrete_sequence=px.colors.qualitative.Pastel)
-                st.plotly_chart(fig_poll, use_container_width=True)
+                st.plotly_chart(fig_poll, width='stretch')
 
             # 4. correlation Heatmap
             st.subheader("🔗 Pollutant Correlations")
@@ -806,7 +806,7 @@ if st.session_state['prediction'] is not None:
             fig_corr = px.imshow(corr, text_auto=True, aspect="auto",
                                title="Correlation Heatmap (Pollutants vs AQI)",
                                color_continuous_scale='RdBu_r', origin='lower')
-            st.plotly_chart(fig_corr, use_container_width=True)
+            st.plotly_chart(fig_corr, width='stretch')
             st.info("💡 High positive values (red) show strong relationships between pollutants and overall AQI.")
             
         else:
