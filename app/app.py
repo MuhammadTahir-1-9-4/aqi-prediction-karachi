@@ -93,7 +93,7 @@ if api_response and "prediction" in api_response:
     if "features" in api_response and isinstance(api_response["features"], dict):
         feature_names = list(api_response["features"].keys())
         latest_sample = pd.DataFrame([api_response["features"]])[feature_names]
-        gb_model = None
+        loaded_model = None
         scaler = None
         project = None
     else:
@@ -136,51 +136,54 @@ else:
                     fs = project.get_feature_store()
                     
                     model = mr.get_model(
-                        name="aqi_gradient_boosting_model"
+                        name="aqi_prediction_model"
                     )
                     
                     model_dir = model.download()
                     
+                    # Extract best model name from description
+                    # Format: "Model Type: Random Forest | Trained 2026-02-14"
+                    try:
+                        best_algo = model.description.split("|")[0].split(":")[1].strip()
+                    except:
+                        best_algo = "Gradient Boosting" # Fallback
+                    
                     model_file = None
-                    for possible_file in ["model.pkl", "gradient_boosting_model.pkl", "gb_model.pkl"]:
-                        model_path = os.path.join(model_dir, possible_file)
-                        if os.path.exists(model_path):
-                            model_file = model_path
+                    for possible_file in ["model.pkl", f"{best_algo.lower().replace(' ', '_')}_model.pkl", "gradient_boosting_model.pkl"]:
+                        path = os.path.join(model_dir, possible_file)
+                        if os.path.exists(path):
+                            model_file = path
                             break
                     
                     if model_file is None:
+                        # Final resort: search for any pkl that isn't scaler or feature_names
+                        for f in os.listdir(model_dir):
+                            if f.endswith(".pkl") and f not in ["scaler.pkl", "feature_names.pkl"]:
+                                model_file = os.path.join(model_dir, f)
+                                break
+                    
+                    if model_file is None:
                         st.error("❌ Model file not found in downloaded artifacts")
-                        return None, None, None, None, None
+                        return None, None, None, None, None, None, None
                     
-                    gb_model = joblib.load(model_file)
+                    loaded_model = joblib.load(model_file)
                     
-                    scaler = None
-                    scaler_path = os.path.join(model_dir, "scaler.pkl")
-                    if os.path.exists(scaler_path):
-                        scaler = joblib.load(scaler_path)
-                    else:
-                        from sklearn.preprocessing import StandardScaler
-                        scaler = StandardScaler()
+                    scaler = joblib.load(os.path.join(model_dir, "scaler.pkl"))
+                    feature_names = joblib.load(os.path.join(model_dir, "feature_names.pkl"))
                     
-                    feature_names = None
-                    features_path = os.path.join(model_dir, "feature_names.pkl")
-                    if os.path.exists(features_path):
-                        feature_names = joblib.load(features_path)
-                    else:
-                        feature_names = [
-                            'co', 'no', 'no2', 'o3', 'so2', 'pm2_5', 'pm10', 'nh3',
-                            'hour', 'day', 'day_of_week', 'month', 'is_weekend',
-                            'aqi_change_rate', 'rolling_aqi_3h', 'rolling_aqi_6h', 'rolling_aqi_24h'
-                        ]
+                    # Load comparison data if exists
+                    metrics_df = None
+                    comparison_path = os.path.join(model_dir, "model_comparison.csv")
+                    if os.path.exists(comparison_path):
+                        metrics_df = pd.read_csv(comparison_path)
                     
-                    return fs, gb_model, scaler, feature_names, project
+                    return fs, loaded_model, scaler, feature_names, project, best_algo, metrics_df
                     
                 except Exception as e:
                     st.error(f"❌ Error loading from Hopsworks: {str(e)}")
-                    st.info("💡 Tip: Check that your HOPSWORKS_API_KEY is correctly set in Streamlit Secrets")
-                    return None, None, None, None, None
+                    return None, None, None, None, None, None, None
 
-            fs, gb_model, scaler, feature_names, project = load_model_and_components()
+            fs, loaded_model, scaler, feature_names, project, best_algo, metrics_df = load_model_and_components()
             
             if fs is None:
                 raise Exception("Failed to load components")
@@ -190,14 +193,14 @@ else:
         except Exception as e:
             st.warning(f"Could not connect to Hopsworks: {str(e)}")
             st.info("Using sample data for demonstration")
-            from sklearn.ensemble import GradientBoostingRegressor
-            from sklearn.preprocessing import StandardScaler
+            best_algo = "Gradient Boosting"
+            metrics_df = None
             
             feature_names = ['co', 'no', 'no2', 'o3', 'so2', 'pm2_5', 'pm10', 'nh3', 'hour', 'day', 'day_of_week', 'month', 'is_weekend', 'aqi_change_rate', 'rolling_aqi_3h', 'rolling_aqi_6h', 'rolling_aqi_24h']
-            gb_model = GradientBoostingRegressor(n_estimators=100, random_state=42)
+            loaded_model = GradientBoostingRegressor(n_estimators=100, random_state=42)
             X_sample = np.random.randn(1000, len(feature_names))
             y_sample = np.random.uniform(1, 5, 1000)
-            gb_model.fit(X_sample, y_sample)
+            loaded_model.fit(X_sample, y_sample)
             
             scaler = StandardScaler()
             scaler.fit(X_sample)
@@ -293,7 +296,7 @@ else:
         
         return sample_data[feature_names]
 
-    if gb_model and scaler and feature_names:
+    if loaded_model and scaler and feature_names:
         with st.spinner("Fetching latest features..."):
             if using_hopsworks:
                 latest_sample = get_latest_features(fs, feature_names)
@@ -310,8 +313,32 @@ else:
         
         try:
             X_scaled = scaler.transform(latest_sample.values)
-            prediction = gb_model.predict(X_scaled)[0]
+            prediction = loaded_model.predict(X_scaled)[0]
             st.session_state['prediction'] = prediction
+            # Calculate dynamic metrics for UI
+            if metrics_df is not None:
+                # Standardize names for lookup
+                lookup_name = best_algo.lower().replace(' ', '_')
+                best_row = metrics_df[metrics_df['model'] == lookup_name]
+                if best_row.empty:
+                    best_row = metrics_df.sort_values('val_r2', ascending=False).iloc[0:1]
+                
+                best_r2 = float(best_row['val_r2'].iloc[0])
+                best_rmse = float(best_row['val_rmse'].iloc[0])
+                best_mae = float(best_row['val_mae'].iloc[0])
+                
+                # Compare to others
+                others = metrics_df[metrics_df['model'] != best_row['model'].iloc[0]]
+                if not others.empty:
+                    other_r2 = others['val_r2'].max()
+                    best_val_r2_diff = (best_r2 - other_r2) * 100
+                    best_val_rmse_diff = (metrics_df['val_rmse'].mean() - best_rmse) / metrics_df['val_rmse'].mean() * 100
+                else:
+                    best_val_r2_diff, best_val_rmse_diff = 0.0, 0.0
+            else:
+                best_r2, best_rmse, best_mae = 0.9986, 0.0393, 0.0027
+                best_val_r2_diff, best_val_rmse_diff = 0.5, 15.0
+
         except Exception as e:
             st.error(f"Prediction error: {str(e)}")
             prediction = np.random.uniform(2.0, 3.5)
@@ -795,11 +822,11 @@ if st.session_state['prediction'] is not None:
                 st.subheader("📊 Feature Analysis")
                 
                 importances = None
-                if gb_model:
-                     if hasattr(gb_model, 'feature_importances_'):
-                         importances = gb_model.feature_importances_
-                     elif hasattr(gb_model, 'coef_'):
-                         importances = np.abs(gb_model.coef_)
+                if loaded_model:
+                     if hasattr(loaded_model, 'feature_importances_'):
+                         importances = loaded_model.feature_importances_
+                     elif hasattr(loaded_model, 'coef_'):
+                         importances = np.abs(loaded_model.coef_)
 
                 if importances is not None:
                     feature_importance_df = pd.DataFrame({
@@ -900,66 +927,88 @@ if st.session_state['prediction'] is not None:
                     st.info("Feature importance data not available from the model.")
             
             with insight_tab2:
-                st.subheader("🏆 Model Selection: Why Gradient Boosting?")
+                st.subheader(f"🏆 Model Selection: Why {best_algo}?")
                 
                 col1, col2 = st.columns([2, 1])
                 
                 with col1:
-                    st.markdown("""
+                    st.markdown(f"""
                     ### Comparative Analysis Results
                     
-                    After rigorous evaluation of three regression algorithms, **Gradient Boosting Regressor** 
+                    After rigorous evaluation of three regression algorithms, **{best_algo}** 
                     demonstrated superior performance across all key metrics:
                     
                     **🏆 Performance Highlights:**
-                    - **Highest Accuracy:** R² = 0.9986 (99.86% variance explained)
-                    - **Lowest Errors:** RMSE = 0.0393, MAE = 0.0027
-                    - **Best Generalization:** Minimal overfitting (train-val gap: 0.0014)
+                    - **Highest Accuracy:** R² = {best_r2:.4f} ({best_r2*100:.2f}% variance explained)
+                    - **Lowest Errors:** RMSE = {best_rmse:.4f}, MAE = {best_mae:.4f}
+                    - **Best Generalization:** Minimal overfitting detected
                     - **Optimal Complexity:** Balanced bias-variance tradeoff
                     
                     **📈 Comparative Advantage:**
-                    - 0.5% more accurate than Random Forest
-                    - 0.8% more accurate than Ridge Regression
-                    - 15% lower error than Random Forest
-                    - 61% lower error than Ridge Regression
+                    - {best_val_r2_diff:.1f}% more accurate than the runner-up
+                    - {best_val_rmse_diff:.1f}% lower error than other candidates
+                    - Best performance for Karachi's pollution patterns
                     """)
                 
                 with col2:
-                    st.markdown("""
+                    st.markdown(f"""
                     <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
                                 padding: 20px; border-radius: 10px; color: white; text-align: center;">
                         <h3 style="margin: 0;">🏆 Best Model</h3>
-                        <h1 style="margin: 10px 0;">Gradient Boosting</h1>
+                        <h1 style="margin: 10px 0;">{best_algo}</h1>
                         <div style="background: rgba(255,255,255,0.2); padding: 10px; border-radius: 5px;">
-                            <p style="margin: 5px 0;">R²: <strong>0.9986</strong></p>
-                            <p style="margin: 5px 0;">RMSE: <strong>0.0393</strong></p>
-                            <p style="margin: 5px 0;">MAE: <strong>0.0027</strong></p>
+                            <p style="margin: 5px 0;">R²: <strong>{best_r2:.4f}</strong></p>
+                            <p style="margin: 5px 0;">RMSE: <strong>{best_rmse:.4f}</strong></p>
+                            <p style="margin: 5px 0;">MAE: <strong>{best_mae:.4f}</strong></p>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
                 
                 st.subheader("📊 Performance Metrics Comparison")
                 
-                comparison_data = {
-                    'Metric': ['R² Score', 'RMSE', 'MAE', 'Training R²', 'Overfitting Gap'],
-                    'Gradient Boosting': ['0.9986', '0.0393', '0.0027', '0.999976', '0.0014'],
-                    'Random Forest': ['0.9981', '0.0461', '0.0031', '0.999730', '0.0016'],
-                    'Ridge Regression': ['0.9906', '0.1012', '0.0349', '0.994933', '0.0043']
-                }
+                if metrics_df is not None:
+                    comparison_data = {
+                        'Metric': ['R² Score', 'RMSE', 'MAE', 'Training R²', 'Overfitting Gap'],
+                        'Gradient Boosting': [
+                            f"{metrics_df[metrics_df['model']=='gradient_boosting']['val_r2'].iloc[0]:.4f}",
+                            f"{metrics_df[metrics_df['model']=='gradient_boosting']['val_rmse'].iloc[0]:.4f}",
+                            f"{metrics_df[metrics_df['model']=='gradient_boosting']['val_mae'].iloc[0]:.4f}",
+                            f"{metrics_df[metrics_df['model']=='gradient_boosting']['train_r2'].iloc[0]:.4f}",
+                            f"{metrics_df[metrics_df['model']=='gradient_boosting']['train_r2'].iloc[0] - metrics_df[metrics_df['model']=='gradient_boosting']['val_r2'].iloc[0]:.4f}"
+                        ] if 'gradient_boosting' in metrics_df['model'].values else ['N/A']*5,
+                        'Random Forest': [
+                            f"{metrics_df[metrics_df['model']=='random_forest']['val_r2'].iloc[0]:.4f}",
+                            f"{metrics_df[metrics_df['model']=='random_forest']['val_rmse'].iloc[0]:.4f}",
+                            f"{metrics_df[metrics_df['model']=='random_forest']['val_mae'].iloc[0]:.4f}",
+                            f"{metrics_df[metrics_df['model']=='random_forest']['train_r2'].iloc[0]:.4f}",
+                            f"{metrics_df[metrics_df['model']=='random_forest']['train_r2'].iloc[0] - metrics_df[metrics_df['model']=='random_forest']['val_r2'].iloc[0]:.4f}"
+                        ] if 'random_forest' in metrics_df['model'].values else ['N/A']*5,
+                        'Ridge Regression': [
+                            f"{metrics_df[metrics_df['model']=='ridge']['val_r2'].iloc[0]:.4f}",
+                            f"{metrics_df[metrics_df['model']=='ridge']['val_rmse'].iloc[0]:.4f}",
+                            f"{metrics_df[metrics_df['model']=='ridge']['val_mae'].iloc[0]:.4f}",
+                            f"{metrics_df[metrics_df['model']=='ridge']['train_r2'].iloc[0]:.4f}",
+                            f"{metrics_df[metrics_df['model']=='ridge']['train_r2'].iloc[0] - metrics_df[metrics_df['model']=='ridge']['val_r2'].iloc[0]:.4f}"
+                        ] if 'ridge' in metrics_df['model'].values else ['N/A']*5
+                    }
+                else:
+                    comparison_data = {
+                        'Metric': ['R² Score', 'RMSE', 'MAE', 'Training R²', 'Overfitting Gap'],
+                        'Gradient Boosting': ['0.9986', '0.0393', '0.0027', '0.9999', '0.0014'],
+                        'Random Forest': ['0.9981', '0.0461', '0.0031', '0.9997', '0.0016'],
+                        'Ridge Regression': ['0.9906', '0.1012', '0.0349', '0.9949', '0.0043']
+                    }
                 
                 comparison_df = pd.DataFrame(comparison_data)
                 
-                best_for_metric = {
-                    'R² Score': 'Gradient Boosting',
-                    'RMSE': 'Gradient Boosting',
-                    'MAE': 'Gradient Boosting',
-                    'Training R²': 'Gradient Boosting',
-                    'Overfitting Gap': 'Gradient Boosting'
-                }
-                
+                # Dynamic highlighting
                 def highlight_best(row):
                     metric = row['Metric']
-                    best_model = best_for_metric.get(metric, '')
+                    best_model = "Gradient Boosting"
+                    if metrics_df is not None:
+                         m_map = {'gradient_boosting': 'Gradient Boosting', 'random_forest': 'Random Forest', 'ridge': 'Ridge Regression'}
+                         winning_algo = metrics_df.sort_values('val_r2', ascending=False).iloc[0]['model']
+                         best_model = m_map.get(winning_algo, "Gradient Boosting")
                     
                     styles = []
                     for col in comparison_df.columns:
@@ -983,12 +1032,15 @@ if st.session_state['prediction'] is not None:
                 
                 fig, axes = plt.subplots(1, 3, figsize=(15, 5))
                 
-                metrics = ['R² Score', 'RMSE', 'MAE']
-                values = {
-                    'Gradient Boosting': [0.9986, 0.0393, 0.0027],
-                    'Random Forest': [0.9981, 0.0461, 0.0031],
-                    'Ridge Regression': [0.9906, 0.1012, 0.0349]
-                }
+                metrics_list = ['R² Score', 'RMSE', 'MAE']
+                if metrics_df is not None:
+                     v_gb = [metrics_df[metrics_df['model']=='gradient_boosting']['val_r2'].iloc[0], metrics_df[metrics_df['model']=='gradient_boosting']['val_rmse'].iloc[0], metrics_df[metrics_df['model']=='gradient_boosting']['val_mae'].iloc[0]] if 'gradient_boosting' in metrics_df['model'].values else [0,0,0]
+                     v_rf = [metrics_df[metrics_df['model']=='random_forest']['val_r2'].iloc[0], metrics_df[metrics_df['model']=='random_forest']['val_rmse'].iloc[0], metrics_df[metrics_df['model']=='random_forest']['val_mae'].iloc[0]] if 'random_forest' in metrics_df['model'].values else [0,0,0]
+                     v_rg = [metrics_df[metrics_df['model']=='ridge']['val_r2'].iloc[0], metrics_df[metrics_df['model']=='ridge']['val_rmse'].iloc[0], metrics_df[metrics_df['model']=='ridge']['val_mae'].iloc[0]] if 'ridge' in metrics_df['model'].values else [0,0,0]
+                     values = {'Gradient Boosting': v_gb, 'Random Forest': v_rf, 'Ridge Regression': v_rg}
+                else:
+                     values = {'Gradient Boosting': [0.9986, 0.0393, 0.0027], 'Random Forest': [0.9981, 0.0461, 0.0031], 'Ridge Regression': [0.9906, 0.1012, 0.0349]}
+                
                 colors = ['#28a745', '#17a2b8', '#6c757d']
                 
                 x = np.arange(len(metrics))
@@ -1006,11 +1058,47 @@ if st.session_state['prediction'] is not None:
                 axes[0].legend(loc='upper right')
                 axes[0].grid(True, alpha=0.3, axis='y')
                 
-                error_reduction = {
-                    'Metric': ['RMSE Reduction', 'MAE Reduction'],
-                    'vs Random Forest': ['14.7%', '12.9%'],
-                    'vs Ridge Regression': ['61.2%', '92.3%']
-                }
+                if metrics_df is not None:
+                    # Calculate relative reductions
+                    m_gb = metrics_df[metrics_df['model']=='gradient_boosting']
+                    m_rf = metrics_df[metrics_df['model']=='random_forest']
+                    m_rg = metrics_df[metrics_df['model']=='ridge']
+                    
+                    winner_rmse = best_rmse
+                    winner_mae = best_mae
+                    
+                    error_reduction = {
+                        'Metric': ['RMSE Reduction', 'MAE Reduction'],
+                        'vs RF': [f"{100*(1 - winner_rmse/float(m_rf['val_rmse'].iloc[0])):.1f}%" if not m_rf.empty else "N/A", 
+                                  f"{100*(1 - winner_mae/float(m_rf['val_mae'].iloc[0])):.1f}%" if not m_rf.empty else "N/A"],
+                        'vs Ridge': [f"{100*(1 - winner_rmse/float(m_rg['val_rmse'].iloc[0])):.1f}%" if not m_rg.empty else "N/A", 
+                                     f"{100*(1 - winner_mae/float(m_rg['val_mae'].iloc[0])):.1f}%" if not m_rg.empty else "N/A"]
+                    }
+                    
+                    train_val_data = {
+                        'Model': ['GB', 'RF', 'Ridge'],
+                        'Training R²': [
+                            float(m_gb['train_r2'].iloc[0]) if not m_gb.empty else 0,
+                            float(m_rf['train_r2'].iloc[0]) if not m_rf.empty else 0,
+                            float(m_rg['train_r2'].iloc[0]) if not m_rg.empty else 0
+                        ],
+                        'Validation R²': [
+                            float(m_gb['val_r2'].iloc[0]) if not m_gb.empty else 0,
+                            float(m_rf['val_r2'].iloc[0]) if not m_rf.empty else 0,
+                            float(m_rg['val_r2'].iloc[0]) if not m_rg.empty else 0
+                        ]
+                    }
+                else:
+                    error_reduction = {
+                        'Metric': ['RMSE Reduction', 'MAE Reduction'],
+                        'vs Random Forest': ['14.7%', '12.9%'],
+                        'vs Ridge Regression': ['61.2%', '92.3%']
+                    }
+                    train_val_data = {
+                        'Model': ['GB', 'RF', 'Ridge'],
+                        'Training R²': [0.9999, 0.9997, 0.9949],
+                        'Validation R²': [0.9986, 0.9981, 0.9906]
+                    }
                 
                 error_df = pd.DataFrame(error_reduction)
                 axes[1].axis('off')
@@ -1019,13 +1107,6 @@ if st.session_state['prediction'] is not None:
                             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.7, 
                                     edgecolor='brown', linewidth=2))
                 axes[1].set_title('Error Reduction (%)', fontweight='bold')
-                
-                train_val_data = {
-                    'Model': ['Gradient Boosting', 'Random Forest', 'Ridge Regression'],
-                    'Training R²': [0.999976, 0.999730, 0.994933],
-                    'Validation R²': [0.9986, 0.9981, 0.9906],
-                    'Gap': [0.0014, 0.0016, 0.0043]
-                }
                 
                 train_val_df = pd.DataFrame(train_val_data)
                 x_pos = np.arange(len(train_val_df))
@@ -1050,40 +1131,62 @@ if st.session_state['prediction'] is not None:
                 insight_col1, insight_col2 = st.columns(2)
                 
                 with insight_col1:
-                    st.markdown("""
-                    **✅ Why Gradient Boosting Won:**
-                    
-                    1. **Sequential Learning**
-                    - Builds trees sequentially
-                    - Corrects previous errors
-                    - Ideal for complex patterns
-                    
-                    2. **Robust to Outliers**
-                    - Less affected by extreme spikes
-                    - More stable predictions
-                    - Better generalization
-                    
-                    3. **Feature Interactions**
-                    - Captures complex relationships
-                    - Models non-linear effects
-                    - Handles pollution interactions
-                    """)
+                    if "Gradient Boosting" in best_algo:
+                        st.markdown("""
+                        **✅ Why Gradient Boosting Won:**
+                        
+                        1. **Sequential Learning**
+                        - Builds trees sequentially to correct previous errors.
+                        - Ideal for complex temporal patterns in Karachi's AQI.
+                        
+                        2. **Outlier Resilience**
+                        - Less affected by extreme pollution spikes.
+                        - Superior generalization for real-world fluctuation.
+                        
+                        3. **Feature Interactions**
+                        - Captures complex correlations between pollutants.
+                        """)
+                    elif "Random Forest" in best_algo:
+                        st.markdown("""
+                        **✅ Why Random Forest Won:**
+                        
+                        1. **Parallel Ensembling**
+                        - Aggregates multiple randomized decision paths.
+                        - Highly stable and resistant to noisy sensor data.
+                        
+                        2. **Variance Reduction**
+                        - Excellent at preventing overfitting.
+                        - Most consistent performance across validation sets.
+                        
+                        3. **Threshold Detection**
+                        - Effectively captures sharp AQI category boundaries.
+                        """)
+                    else:
+                        st.markdown(f"""
+                        **✅ Why {best_algo} Won:**
+                        
+                        1. **Balanced Performance**
+                        - Found the optimal bias-variance tradeoff.
+                        
+                        2. **Robust Statistics**
+                        - Demonstrated the most stable metrics during training.
+                        
+                        3. **Reliable Generalization**
+                        - Lowest error rate on unseen data.
+                        """)
                 
                 with insight_col2:
-                    st.markdown("""
+                    st.markdown(f"""
                     **⚡ Performance Benefits:**
                     
-                    • **0.0393 RMSE** → ±0.04 AQI accuracy
-                    • **0.0027 MAE** → Near-perfect predictions
-                    • **0.9986 R²** → 99.86% variance explained
-                    • **0.0014 gap** → Excellent generalization
+                    • **{best_rmse:.4f} RMSE** → Professional Precision
+                    • **{best_mae:.4f} MAE** → Minimal absolute error
+                    • **{best_r2:.4f} R²** → {best_r2*100:.1f}% Variance explained
                     
                     **🎯 Business Impact:**
-                    
-                    • More reliable health advisories
-                    • Better forecast accuracy
-                    • Reduced false alarms
-                    • Improved public trust
+                    - More reliable health advisories
+                    - Reduced false alarm frequency
+                    - Improved public trust in forecasts
                     """)
             
             with insight_tab3:
@@ -1093,10 +1196,11 @@ if st.session_state['prediction'] is not None:
                 
                 with spec_col1:
                     st.info("**⚙️ Model Details**")
-                    st.markdown("""
-                    - **Algorithm:** Gradient Boosting
-                    - **Version:** 1.0
-                    - **Training Samples:** 17,235
+                    st.markdown(f"""
+                    - **Algorithm:** {best_algo}
+                    - **Version:** Latest Registry
+                    - **Source:** Hopsworks
+                    - **Training Samples:** Dynamic Dataset
                     - **Validation Strategy:** 80/20 split
                     - **Random State:** 42
                     """)

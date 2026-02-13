@@ -161,7 +161,7 @@ def daily_training_pipeline():
         best_metrics = results_df[results_df["model"] == best_model_name].iloc[0].to_dict()
         
         model = mr.python.create_model(
-            name="aqi_gradient_boosting_model",
+            name="aqi_prediction_model",
             metrics={
                 "val_r2": float(best_metrics['val_r2']),
                 "val_rmse": float(best_metrics['val_rmse']),
@@ -170,7 +170,7 @@ def daily_training_pipeline():
                 "train_rmse": float(best_metrics['train_rmse']),
                 "train_mae": float(best_metrics['train_mae'])
             },
-            description=f"AQI Prediction Model - Trained {datetime.now().date()}",
+            description=f"Model Type: {best_model_name} | Trained {datetime.now().date()}",
             input_example=X.iloc[:1]
         )
         
