@@ -42,11 +42,18 @@ def daily_training_pipeline():
             write_options={"wait_for_job": True}
         )
         
-        logger.info(f"📊 Training dataset version {td_version} created")
+        # Extract version if td_version is a tuple (version, path)
+        actual_td_version = td_version[0] if isinstance(td_version, tuple) else td_version
+        logger.info(f"📊 Training dataset version {actual_td_version} created")
+        
+        # Give Hopsworks a moment to sync metadata
+        import time
+        logger.info("⏳ Waiting for metadata synchronization...")
+        time.sleep(10)
         
         logger.info("📥 Fetching training data...")
         X, y = fv.get_training_data(
-            training_dataset_version=td_version,
+            training_dataset_version=actual_td_version,
             create_training_dataset=False
         )
         
