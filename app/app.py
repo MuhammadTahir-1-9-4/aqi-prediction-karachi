@@ -945,7 +945,7 @@ if st.session_state['prediction'] is not None:
                     - **Optimal Complexity:** Balanced bias-variance tradeoff
                     
                     **📈 Comparative Advantage:**
-                    - {best_val_r2_diff:.1f}% more accurate than the runner-up
+                    - {f"{best_val_r2_diff:.2f}% improvement" if best_val_r2_diff > 0 else "Highly competitive performance"} vs runner-up
                     - {best_val_rmse_diff:.1f}% lower error than other candidates
                     - Best performance for Karachi's pollution patterns
                     """)
@@ -1043,7 +1043,7 @@ if st.session_state['prediction'] is not None:
                 
                 colors = ['#28a745', '#17a2b8', '#6c757d']
                 
-                x = np.arange(len(metrics))
+                x = np.arange(len(metrics_list))
                 width = 0.25
                 
                 for i, (model, color) in enumerate(zip(values.keys(), colors)):
@@ -1054,7 +1054,7 @@ if st.session_state['prediction'] is not None:
                 axes[0].set_ylabel('Score/Error', fontweight='bold')
                 axes[0].set_title('Model Performance Comparison', fontweight='bold')
                 axes[0].set_xticks(x)
-                axes[0].set_xticklabels(metrics, rotation=45, fontweight='bold')
+                axes[0].set_xticklabels(metrics_list, rotation=45, fontweight='bold')
                 axes[0].legend(loc='upper right')
                 axes[0].grid(True, alpha=0.3, axis='y')
                 
