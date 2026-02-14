@@ -5,9 +5,9 @@ import hopsworks
 import os
 import pandas as pd
 import numpy as np
+import sys
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-import sys
 import logging
 import time
 import uuid
@@ -95,9 +95,6 @@ def validate_data(df: pd.DataFrame) -> bool:
         logger.error(f"AQI values outside range 0-4: {df['aqi'].values}")
         return False
     
-    if (df['pm2_5'] < 0).any() or (df['pm2_5'] > 500).any():
-        logger.warning(f"PM2.5 values outside typical range: {df['pm2_5'].values}")
-    
     return True
 
 def hourly_ingestion_pipeline():
@@ -109,25 +106,25 @@ def hourly_ingestion_pipeline():
         
         if aqi_data.empty:
             logger.warning("⚠️ No data available from API")
-            return
+            return None
         
         logger.info(f"📥 Fetched {len(aqi_data)} record(s)")
         
         aqi_data["datetime"] = pd.to_datetime(aqi_data["datetime"], utc=True)
-        aqi_data["datetime"] = aqi_data["datetime"].dt.floor("H")  # round to nearest hour
+        aqi_data["datetime"] = aqi_data["datetime"].dt.floor("H")
         
         logger.info("🔧 Computing features...")
         features_df = compute_features(aqi_data)
         
         if features_df.empty:
             logger.error("❌ No data after feature computation")
-            return
+            return None
             
         logger.info(f"✨ Generated {len(features_df)} feature rows")
         
         if not validate_data(features_df):
             logger.error("❌ Data validation failed")
-            return
+            return None
         
         logger.info("🔌 Connecting to Hopsworks...")
         project = hopsworks.login(
@@ -153,12 +150,11 @@ def hourly_ingestion_pipeline():
                 
                 if new_timestamp <= latest_timestamp:
                     logger.warning(f"⏭️ Skipping ingestion - data already exists (New: {new_timestamp} <= Latest: {latest_timestamp})")
-                    return
+                    return features_df # Count as success even if skipped
         except Exception as e:
             logger.warning(f"⚠️ Could not check existing data: {e}")
         
         logger.info(f"💾 Inserting {len(features_df)} new record(s)...")
-        logger.info(f"Data types check: aqi={features_df['aqi'].dtype}, no={features_df['no'].dtype}")
         
         fg.insert(
             features_df,
@@ -172,25 +168,6 @@ def hourly_ingestion_pipeline():
         )
         
         logger.info(f"✅ Hourly ingestion completed at {datetime.now()}")
-        logger.info(f"📊 Data inserted successfully!")
-        logger.info(f"   AQI: {features_df['aqi'].iloc[0]}")
-        logger.info(f"   PM2.5: {features_df['pm2_5'].iloc[0]:.1f} µg/m³")
-        logger.info(f"   PM10: {features_df['pm10'].iloc[0]:.1f} µg/m³")
-        logger.info(f"   Time: {features_df['datetime'].iloc[0]}")
-        
-        # check and send alerts
-        current_aqi = features_df['aqi'].iloc[0]
-        try:
-            from src.utils.alerts import check_and_alert
-            alert_sent = check_and_alert(current_aqi, "Karachi")
-            if alert_sent:
-                logger.info("🚨 Health alert sent!")
-            else:
-                logger.info("ℹ️ No alert needed (AQI within safe range)")
-        except ImportError:
-            logger.warning("Alert system not available")
-        except Exception as e:
-            logger.error(f"Alert check failed: {str(e)}")
         
         # save local copy for debugging
         os.makedirs("data/processed/hourly", exist_ok=True)
@@ -207,33 +184,23 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(description="Hourly AQI Data Ingestion")
-    parser.add_argument(
-        "--test",
-        action="store_true",
-        help="Test mode - run once and exit"
-    )
-    parser.add_argument(
-        "--continuous",
-        action="store_true",
-        help="Run continuously (for testing)"
-    )
+    parser.add_argument("--test", action="store_true", help="Test mode")
+    parser.add_argument("--continuous", action="store_true", help="Run continuously")
     
     args = parser.parse_args()
     
     if args.continuous:
-        logger.info("🔄 Running in continuous mode (hourly)")
+        logger.info("Running in continuous mode (hourly)")
         while True:
             result = hourly_ingestion_pipeline()
-            if result is not None:
-                logger.info("✅ Ingestion successful")
-            else:
-                logger.warning("⚠️ Ingestion failed or skipped")
-            
-            logger.info(f"⏳ Sleeping for 1 hour... Next run at {datetime.now() + timedelta(hours=1)}")
-            time.sleep(3600)  # sleep for 1 hour
+            logger.info("⏳ Sleeping for 1 hour...")
+            time.sleep(3600)
     else:
         result = hourly_ingestion_pipeline()
         if result is not None:
-            print(f"   Timestamp: {result['datetime'].iloc[0]}")
+            print(f"✅ Ingestion successful.")
+            print(f"   - Timestamp: {result['datetime'].iloc[0]}")
+            print(f"   - AQI: {result['aqi'].iloc[0]}")
         else:
-            print("⚠️ Ingestion failed or skipped")
+            print("❌ Ingestion failed. See logs above.")
+            sys.exit(1)
