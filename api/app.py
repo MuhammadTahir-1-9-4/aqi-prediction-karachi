@@ -146,14 +146,14 @@ def get_aqi_status(aqi):
         }
     elif aqi <= 2:
         return {
-            "status": "Moderate",
+            "status": "Fair",
             "color": "yellow",
             "description": "Air quality is acceptable. However, there may be a risk for some people.",
             "recommendations": ["Sensitive individuals should consider limiting prolonged outdoor exertion"]
         }
     elif aqi <= 3:
         return {
-            "status": "Unhealthy for Sensitive Groups",
+            "status": "Moderate",
             "color": "orange",
             "description": "Members of sensitive groups may experience health effects.",
             "recommendations": [
@@ -163,7 +163,7 @@ def get_aqi_status(aqi):
         }
     elif aqi <= 4:
         return {
-            "status": "Unhealthy",
+            "status": "Poor",
             "color": "red",
             "description": "Everyone may begin to experience health effects.",
             "recommendations": [
@@ -174,7 +174,7 @@ def get_aqi_status(aqi):
         }
     else:
         return {
-            "status": "Hazardous",
+            "status": "Very Poor",
             "color": "darkred",
             "description": "Emergency conditions. The entire population is more likely to be affected.",
             "recommendations": [
@@ -213,7 +213,7 @@ def predict():
         aqi_info = get_aqi_status(prediction)
 
         response = {
-            "prediction": round(prediction, 2),
+            "prediction": round(prediction + 1, 2),
             "confidence": confidence,
             "status": aqi_info["status"],
             "color": aqi_info["color"],
@@ -253,7 +253,8 @@ def forecast():
             current_row_copy['month'] = future_date.month
             current_row_copy['is_weekend'] = 1 if future_date.weekday() >= 5 else 0
 
-            prediction, confidence = predict_aqi(current_row_copy)
+            prediction_val, confidence = predict_aqi(current_row_copy)
+            prediction = prediction_val + 1 if prediction_val is not None else None
 
             if prediction is not None:
                 aqi_info = get_aqi_status(prediction)

@@ -314,7 +314,7 @@ else:
         try:
             X_scaled = scaler.transform(latest_sample.values)
             prediction = loaded_model.predict(X_scaled)[0]
-            st.session_state['prediction'] = prediction
+            st.session_state['prediction'] = prediction + 1  # Standardize back to 1-5 scale
             # Calculate dynamic metrics for UI
             if metrics_df is not None:
                 # Standardize names for lookup
