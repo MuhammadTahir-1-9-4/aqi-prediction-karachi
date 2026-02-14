@@ -26,8 +26,7 @@ st.set_page_config(
     page_icon="🌍"
 )
 
-st.title("🌍 AQI Prediction & Explainability Dashboard [v1.0.1 Stable]")
-# Forced Sync Nudge: 2026-02-14 11:15
+st.title("🌍 AQI Prediction & Explainability Dashboard")
 
 
 FLASK_API_URL = "http://localhost:5000"
