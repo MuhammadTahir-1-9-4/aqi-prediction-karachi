@@ -147,8 +147,12 @@ def hourly_ingestion_pipeline():
                 latest_timestamp = pd.to_datetime(latest_data['datetime'].max())
                 new_timestamp = pd.to_datetime(features_df['datetime'].max())
                 
+                logger.info(f"📊 Timestamp Check:")
+                logger.info(f"   - New Data: {new_timestamp}")
+                logger.info(f"   - Latest in FS: {latest_timestamp}")
+                
                 if new_timestamp <= latest_timestamp:
-                    logger.warning("⏭️ Skipping ingestion - data already exists")
+                    logger.warning(f"⏭️ Skipping ingestion - data already exists (New: {new_timestamp} <= Latest: {latest_timestamp})")
                     return
         except Exception as e:
             logger.warning(f"⚠️ Could not check existing data: {e}")
@@ -230,11 +234,6 @@ if __name__ == "__main__":
     else:
         result = hourly_ingestion_pipeline()
         if result is not None:
-            print(f"✅ Ingestion successful. Inserted {len(result)} rows")
-            print(f"📊 Data summary:")
-            print(f"   AQI: {result['aqi'].iloc[0]} (type: {result['aqi'].dtype})")
-            print(f"   NO: {result['no'].iloc[0]} (type: {result['no'].dtype})")
-            print(f"   PM2.5: {result['pm2_5'].iloc[0]:.1f} µg/m³")
-            print(f"   Time: {result['datetime'].iloc[0]}")
+            print(f"   Timestamp: {result['datetime'].iloc[0]}")
         else:
             print("⚠️ Ingestion failed or skipped")
