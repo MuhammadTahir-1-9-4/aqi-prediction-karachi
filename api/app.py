@@ -72,10 +72,14 @@ def get_latest_features():
             X = batch_data
 
         if X is not None and not X.empty:
+            if 'datetime' in X.columns:
+                X['datetime'] = pd.to_datetime(X['datetime'])
+                X = X.sort_values('datetime', ascending=False)
+            
             available_features = [f for f in feature_names if f in X.columns]
             X_filtered = X[available_features].copy()
 
-            latest_sample = X_filtered.iloc[-1:].copy()
+            latest_sample = X_filtered.iloc[:1].copy()
 
             for feature in feature_names:
                 if feature not in latest_sample.columns:

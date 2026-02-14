@@ -219,22 +219,24 @@ else:
             df = fg.read()
             
             if df is not None and not df.empty:
-                # sort by event_id (timestamp) to get most recent
-                if 'event_id' in df.columns:
-                    df = df.sort_values('event_id', ascending=False)
+                # Ensure datetime is practical
+                df['datetime'] = pd.to_datetime(df['datetime'])
+                # sort by datetime to get most recent
+                df = df.sort_values('datetime', ascending=False)
                 
                 # get available features
                 available_features = [f for f in feature_names if f in df.columns]
                 X_filtered = df[available_features].copy()
                 
                 latest_sample = X_filtered.iloc[:1].copy()
+                latest_time = df['datetime'].iloc[0]
                 
                 # fill missing features with 0
                 for feature in feature_names:
                     if feature not in latest_sample.columns:
                         latest_sample[feature] = 0
                 
-                return latest_sample[feature_names]
+                return latest_sample[feature_names], latest_time
         
         except Exception:
             # fallback to old method if new approach fails
@@ -252,16 +254,21 @@ else:
                     X = batch_data
                 
                 if X is not None and not X.empty:
+                    if 'datetime' in X.columns:
+                        X['datetime'] = pd.to_datetime(X['datetime'])
+                        X = X.sort_values('datetime', ascending=False)
+                    
                     available_features = [f for f in feature_names if f in X.columns]
                     X_filtered = X[available_features].copy()
                     
-                    latest_sample = X_filtered.iloc[-1:].copy()
+                    latest_sample = X_filtered.iloc[:1].copy()
+                    latest_time = X['datetime'].iloc[0] if 'datetime' in X.columns else datetime.now()
                     
                     for feature in feature_names:
                         if feature not in latest_sample.columns:
                             latest_sample[feature] = 0
                     
-                    return latest_sample[feature_names]
+                    return latest_sample[feature_names], latest_time
             except Exception:
                 pass
         
@@ -299,16 +306,19 @@ else:
     if loaded_model and scaler and feature_names:
         with st.spinner("Fetching latest features..."):
             if using_hopsworks:
-                latest_sample = get_latest_features(fs, feature_names)
+                latest_sample, data_time = get_latest_features(fs, feature_names)
                 if latest_sample is not None:
                     st.session_state['using_sample_data'] = False
+                    st.session_state['data_time'] = data_time
                 else:
                     st.session_state['using_sample_data'] = True
                     latest_sample = create_sample_data(feature_names)
+                    st.session_state['data_time'] = datetime.now()
                     st.info("📊 Using sample data for demonstration")
             else:
                 st.session_state['using_sample_data'] = True
                 latest_sample = create_sample_data(feature_names)
+                st.session_state['data_time'] = datetime.now()
                 st.info("📊 Using sample data for demonstration")
         
         try:
@@ -408,7 +418,21 @@ with st.sidebar:
         st.rerun()
     
     st.markdown("---")
-    st.markdown(f"**Last update:** {st.session_state['last_refresh'].strftime('%H:%M:%S')}")
+    # Freshness Check
+    last_refresh = st.session_state['last_refresh']
+    data_time = st.session_state.get('data_time', last_refresh)
+    
+    # ensure data_time is a safe datetime object for comparison
+    if isinstance(data_time, str):
+        data_time = pd.to_datetime(data_time)
+        
+    time_diff = datetime.now() - data_time.replace(tzinfo=None)
+    
+    if time_diff.total_seconds() > 10800: # 3 hours
+        st.error(f"⚠️ **Stale Data Alert!**\nLatest data point is from {data_time.strftime('%H:%M:%S')}. The pipeline may be delayed.")
+    
+    st.markdown(f"**UI Last refresh:** {last_refresh.strftime('%H:%M:%S')}")
+    st.markdown(f"**Data Timestamp:** {data_time.strftime('%H:%M:%S')}")
     
     if st.session_state.get('using_sample_data', False):
         st.warning("⚠️ Using sample data")
