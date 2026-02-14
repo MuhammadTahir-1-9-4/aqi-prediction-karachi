@@ -28,10 +28,6 @@ st.set_page_config(
 
 st.title("🌍 AQI Prediction & Explainability Dashboard")
 
-st.info("""
-**📊 AQI Scale Notice:** This dashboard uses OpenWeather's AQI scale (1-5) which differs from EPA's scale (0-500+). 
-Current reading of 4.02 means "Poor" air quality on OpenWeather scale, while other sources may show different numbers using EPA scale.
-""")
 
 FLASK_API_URL = "http://localhost:5000"
 
@@ -384,27 +380,6 @@ if 'prediction' not in st.session_state:
     st.session_state['prediction'] = None
 
 with st.sidebar:
-    st.header("ℹ️ About")
-    st.markdown("""
-    **AQI Prediction System**
-    
-    Real-time Air Quality Index forecasting for Karachi using machine learning.
-    
-    **📊 OpenWeather AQI Scale (1-5):**
-    - 🟢 **Good (1)**: Ideal air quality
-    - 🟡 **Fair (2)**: Acceptable air quality
-    - 🟠 **Moderate (3)**: Moderate air pollution
-    - 🔴 **Poor (4)**: High air pollution
-    - ☠️ **Very Poor (5)**: Severe air pollution
-    
-    **Note:** This uses OpenWeather's AQI scale, different from EPA's 0-500 scale.
-    
-    **Data Sources:**
-    - Real-time pollutant monitoring
-    - Historical patterns
-    - Meteorological data
-    - Time-based features
-    """)
     
     st.header("⚙️ Settings")
     refresh_rate = st.selectbox(
